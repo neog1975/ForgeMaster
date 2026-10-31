@@ -1,0 +1,26 @@
+# Build output
+build/
+build-*/
+dist/
+out/
+cmake-build-*/
+
+# Audio renders and test material (keep large/personal audio out of the repo)
+renders/
+*.wav
+*.aif
+*.aiff
+*.flac
+*.mp3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE / OS
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+.DS_Store
