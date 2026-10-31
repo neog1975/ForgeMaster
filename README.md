@@ -4,6 +4,11 @@
 
 Think of it as an open alternative to online auto-mastering services that runs locally inside your DAW, with every setting open to tweak.
 
+<p align="center">
+  <img src="docs/ui-simple.png" alt="Forge Master: simple view" width="49%">
+  <img src="docs/ui-advanced.png" alt="Forge Master: advanced view" width="49%">
+</p>
+
 Formats: **VST3**, **AU** (macOS) and **Standalone**. Works in FL Studio, Ableton Live, Logic Pro, Cubase, Reaper and other hosts.
 
 > Status: early release (v0.1.0). Feedback, bug reports and pull requests are very welcome.
@@ -27,6 +32,7 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**. Works in FL Studio, Ableto
 - **Tone EQ**: low shelf, low-mid, presence and air bands
 - **4-band compressor** with Linkwitz-Riley crossovers and phase compensation, optional Mid/Side mode, per-band width
 - **Stereo tools**: mono bass below a set frequency, global stereo width
+- **De-esser**: split-band, only turns down the highs when an "s" or "sh" gets harsh, with adjustable frequency (3–12 kHz) and amount
 - **Saturation** with dry/wet mix
 - **Lookahead brickwall limiter** with oversampling and adjustable ceiling (dBTP)
 - **Gain-matched bypass** to compare honestly at equal loudness
@@ -43,7 +49,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-The built plug-ins are copied into your system plug-in folders automatically. Pass `-DFORGE_COPY_AFTER_BUILD=OFF` to disable this, or `-DJUCE_DIR=/path/to/JUCE` to use your own JUCE checkout.
+The plug-ins are built into `build/ForgeMaster_artefacts/Release/`. Pass `-DFORGE_COPY_AFTER_BUILD=ON` to copy them into your system plug-in folders automatically, or `-DJUCE_DIR=/path/to/JUCE` to use your own JUCE checkout.
 
 On macOS, a universal binary (Apple Silicon + Intel) is built with:
 
@@ -57,7 +63,7 @@ tools/make_installer.sh   # creates dist/ForgeMaster-<version>-macOS.pkg
 
 The `tools/` folder contains offline helpers (built unless `-DFORGE_BUILD_TOOLS=OFF`):
 
-- **AutoMasterTest**: runs the auto master on a WAV file and renders the result. `AutoMasterTest --snapshot ui.png` renders the plugin window to an image without a DAW.
+- **AutoMasterTest**: runs the auto master on a WAV file and renders the result. `AutoMasterTest --snapshot ui.png [adv]` renders the plugin window to an image without a DAW.
 - **ForgeRender**: renders audio through a built VST3.
 - **compare_landr.py**: measures Forge Master renders side by side with other masters of the same mix (loudness and spectrum).
 

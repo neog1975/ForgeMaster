@@ -1,6 +1,6 @@
 // Runs the processor directly: one-click auto master on a WAV, then renders
 // the result. Usage: AutoMasterTest <in.wav> <out.wav> [style 0-3] [intensity 0-100] [target index] [analyse-from seconds]
-#include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
 int main (int argc, char* argv[])
@@ -13,9 +13,13 @@ int main (int argc, char* argv[])
         proc.setPlayConfigDetails (2, 2, 48000.0, 512);
         proc.prepareToPlay (48000.0, 512);
         std::unique_ptr<juce::AudioProcessorEditor> ed (proc.createEditor());
-        if (argc > 3)
+        if (argc > 3 && juce::String (argv[3]) == "adv")
             if (auto* tab = dynamic_cast<juce::Button*> (ed->findChildWithID ("advancedTab")))
                 tab->onClick();
+        if (argc > 4)   // optional fog animation time
+            for (auto* child : ed->getChildren())
+                if (auto* btn = dynamic_cast<AutoMasterButton*> (child))
+                    btn->phase = (float) std::atof (argv[4]);
         juce::File out (argv[2]);
         out.deleteFile();
         juce::FileOutputStream stream (out);
@@ -66,7 +70,9 @@ int main (int argc, char* argv[])
 
     juce::AudioBuffer<float> output (2, len + latency), buf (2, block);
     juce::MidiBuffer midi;
-    const int analyseFrom = argc > 6 ? (int) (std::atof (argv[6]) * sr) : 0;
+    const bool manual = argc > 6 && juce::String (argv[6]) == "manual";   // test manual mode instead
+    const int analyseFrom = manual ? -1 : (argc > 6 ? (int) (std::atof (argv[6]) * sr) : 0);
+    if (manual) proc.enableManualMode();
 
     for (int pass = 0; pass < 2; ++pass)
     {

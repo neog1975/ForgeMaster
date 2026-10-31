@@ -5,15 +5,24 @@ constexpr int advancedKnobHeight = 104;
 
 namespace colours
 {
-    const juce::Colour bg       { 0xff121418 };
-    const juce::Colour panel    { 0xff1b1e24 };
-    const juce::Colour outline  { 0xff2a2e36 };
-    const juce::Colour text     { 0xffd8dce4 };
-    const juce::Colour dim      { 0xff8a919e };
-    const juce::Colour accent   { 0xffff8a3d };
-    const juce::Colour accent2  { 0xff4fc3f7 };
-    const juce::Colour good     { 0xff7ed957 };
-    const juce::Colour warn     { 0xffff5252 };
+    // "Deep lagoon": dark blue-teal base, turquoise -> blue accents
+    const juce::Colour bgTop    { 0xff0a1f2b };
+    const juce::Colour bgBottom { 0xff0f3442 };
+    const juce::Colour bg       { 0xff0b2430 };   // wells: meters, combo boxes, buttons
+    const juce::Colour panel    { 0xc0123645 };
+    const juce::Colour outline  { 0x4032e0d4 };
+    const juce::Colour text     { 0xffe6f6f8 };
+    const juce::Colour dim      { 0xff8fb3bd };
+    const juce::Colour onText   { 0xff06202a };
+    const juce::Colour accent   { 0xff2ee6d6 };   // turquoise
+    const juce::Colour accent2  { 0xff3aa8ff };   // blue
+    const juce::Colour good     { 0xff6ef2a8 };
+    const juce::Colour warn     { 0xffff6b6b };
+
+    inline juce::ColourGradient accentGradient (juce::Rectangle<float> r)
+    {
+        return { accent, r.getX(), r.getY(), accent2, r.getRight(), r.getBottom(), false };
+    }
 }
 
 //==============================================================================
@@ -34,6 +43,25 @@ ForgeLookAndFeel::ForgeLookAndFeel()
     setColour (juce::PopupMenu::highlightedBackgroundColourId, colours::accent.withAlpha (0.3f));
     setColour (juce::TextButton::buttonColourId, colours::bg);
     setColour (juce::TextButton::textColourOffId, colours::text);
+    setColour (juce::TextButton::textColourOnId, colours::onText);
+}
+
+void ForgeLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&,
+                                             bool highlighted, bool down)
+{
+    const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
+    if (b.getToggleState())
+    {
+        g.setGradientFill (colours::accentGradient (r));
+        g.fillRoundedRectangle (r, 8.0f);
+    }
+    else
+    {
+        g.setColour (colours::bg.brighter (highlighted ? 0.25f : 0.0f).darker (down ? 0.2f : 0.0f));
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (colours::outline);
+        g.drawRoundedRectangle (r, 8.0f, 1.0f);
+    }
 }
 
 void ForgeLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos,
@@ -52,11 +80,12 @@ void ForgeLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w,
 
     juce::Path value;
     value.addCentredArc (centre.x, centre.y, radius - stroke, radius - stroke, 0.0f, startAngle, angle, true);
-    g.setColour (colours::accent);
+    g.setGradientFill (colours::accentGradient (bounds));
     g.strokePath (value, juce::PathStrokeType (stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     const float inner = radius - stroke * 2.5f;
-    g.setColour (colours::panel.brighter (0.15f));
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1d4f60), centre.x, centre.y - inner,
+                                             juce::Colour (0xff0c2633), centre.x, centre.y + inner, false));
     g.fillEllipse (centre.x - inner, centre.y - inner, inner * 2.0f, inner * 2.0f);
 
     juce::Path pointer;
@@ -92,40 +121,104 @@ void Knob::resized()
 }
 
 //==============================================================================
+void AutoMasterButton::timerCallback()
+{
+    using State = ForgeMasterProcessor::AutoState;
+    const float speed = state == State::listening ? 2.6f : (isMouseOver() ? 1.5f : 1.0f);
+    phase += speed / 40.0f;
+    repaint();
+}
+
 void AutoMasterButton::paint (juce::Graphics& g)
 {
     using State = ForgeMasterProcessor::AutoState;
     const auto b = getLocalBounds().toFloat().reduced (8.0f);
     const float size = juce::jmin (b.getWidth(), b.getHeight());
     const auto circle = b.withSizeKeepingCentre (size, size);
+    const auto c = circle.getCentre();
     const bool hover = isMouseOver();
+    const juce::Colour glowColour = state == State::mastered ? colours::good : colours::accent;
 
-    g.setColour (colours::bg);
-    g.fillEllipse (circle);
+    // breathing halo
+    const float breath = 0.5f + 0.5f * std::sin (phase * 1.3f);
+    for (int k = 0; k < 4; ++k)
+    {
+        g.setColour (glowColour.withAlpha ((0.05f + 0.05f * breath) * (1.0f - (float) k * 0.22f)));
+        g.drawEllipse (circle.reduced (2.0f - (float) k * 2.0f), 3.0f);
+    }
 
     // progress / done ring
-    juce::Path ring;
+    const auto ringArea = circle.reduced (6.0f);
+    g.setColour (juce::Colour (0x5506151d));
+    g.drawEllipse (ringArea, 8.0f);
     const float ringFrac = state == State::listening ? progress : (state == State::mastered ? 1.0f : 0.0f);
-    g.setColour (colours::outline);
-    g.drawEllipse (circle.reduced (6.0f), 8.0f);
     if (ringFrac > 0.0f)
     {
-        ring.addCentredArc (circle.getCentreX(), circle.getCentreY(), size * 0.5f - 6.0f, size * 0.5f - 6.0f, 0.0f,
+        juce::Path ring;
+        ring.addCentredArc (c.x, c.y, ringArea.getWidth() * 0.5f, ringArea.getHeight() * 0.5f, 0.0f,
                             0.0f, juce::MathConstants<float>::twoPi * ringFrac, true);
-        g.setColour (state == State::mastered ? colours::good : colours::accent);
+        if (state == State::mastered) g.setColour (colours::good);
+        else g.setGradientFill (colours::accentGradient (ringArea));
         g.strokePath (ring, juce::PathStrokeType (8.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
+    // sphere: turquoise highlight top-left, deep blue at the rim
     const auto inner = circle.reduced (22.0f);
-    g.setGradientFill (juce::ColourGradient (colours::accent.brighter (hover ? 0.3f : 0.1f), inner.getCentreX(), inner.getY(),
-                                             colours::accent.darker (0.6f), inner.getCentreX(), inner.getBottom(), false));
+    const float r = inner.getWidth() * 0.5f;
+    juce::ColourGradient sphere (juce::Colour (0xff6ff5e9).brighter (hover ? 0.15f : 0.0f),
+                                 c.x - r * 0.35f, c.y - r * 0.45f,
+                                 juce::Colour (0xff0d3a78), c.x + r * 0.6f, c.y + r * 0.9f, true);
+    sphere.addColour (0.45, juce::Colour (0xff22b8d8));
+    sphere.addColour (0.75, juce::Colour (0xff1f6fd0));
+    g.setGradientFill (sphere);
     g.fillEllipse (inner);
 
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (size * 0.085f, juce::Font::bold));
+    // drifting white fog, clipped to the sphere
+    {
+        juce::Graphics::ScopedSaveState save (g);
+        juce::Path clip;
+        clip.addEllipse (inner);
+        g.reduceClipRegion (clip);
+
+        // a dense core of mist in the middle, with looser wisps drifting around it
+        constexpr int blobs = 11;
+        for (int i = 0; i < blobs; ++i)
+        {
+            const float fi = (float) i;
+            const bool core = i < 5;
+            const float orbitAngle = phase * (core ? 0.45f : 0.28f) * (1.0f + 0.12f * fi) * (i % 2 ? -1.0f : 1.0f) + fi * 1.7f;
+            const float orbit = r * (core ? 0.10f + 0.08f * std::sin (phase * 0.6f + fi)
+                                          : 0.32f + 0.12f * std::sin (phase * 0.4f + fi));
+            const juce::Point<float> p (c.x + orbit * std::cos (orbitAngle), c.y + orbit * std::sin (orbitAngle) * 0.75f);
+            const float blobR = r * (core ? 0.40f + 0.10f * std::sin (phase * 0.8f + fi * 1.3f)
+                                          : 0.30f + 0.10f * std::sin (phase * 0.7f + fi * 1.1f));
+            const float alpha = (core ? 0.22f : 0.14f) + 0.07f * std::sin (phase * 0.9f + fi * 2.0f);
+            juce::ColourGradient fog (juce::Colours::white.withAlpha (alpha), p.x, p.y,
+                                      juce::Colours::white.withAlpha (0.0f), p.x + blobR, p.y, true);
+            g.setGradientFill (fog);
+            g.fillEllipse (p.x - blobR, p.y - blobR, blobR * 2.0f, blobR * 2.0f);
+        }
+
+        // soft specular highlight, upper left
+        const juce::Point<float> hl (c.x - r * 0.38f, c.y - r * 0.48f);
+        juce::ColourGradient gloss (juce::Colours::white.withAlpha (0.30f), hl.x, hl.y,
+                                    juce::Colours::white.withAlpha (0.0f), hl.x + r * 0.55f, hl.y, true);
+        g.setGradientFill (gloss);
+        g.fillEllipse (hl.x - r * 0.55f, hl.y - r * 0.55f, r * 1.1f, r * 1.1f);
+    }
+
+    g.setColour (juce::Colours::white.withAlpha (0.25f));
+    g.drawEllipse (inner, 1.2f);
+
+    // label with a soft shadow so it reads over the fog
     const juce::String title = state == State::listening ? "LISTENING " + juce::String (juce::roundToInt (progress * 100.0f)) + "%"
                              : state == State::mastered  ? "RE-MASTER"
                                                          : "AUTO MASTER";
+    g.setFont (juce::FontOptions (size * 0.085f, juce::Font::bold));
+    g.setColour (juce::Colour (0x550a2540));
+    for (auto [dx, dy] : { std::pair { -1, 1 }, std::pair { 1, 1 }, std::pair { 0, 2 }, std::pair { 0, 0 } })
+        g.drawText (title, inner.toNearestInt().translated (dx, dy), juce::Justification::centred);
+    g.setColour (juce::Colours::white);
     g.drawText (title, inner.toNearestInt(), juce::Justification::centred);
 }
 
@@ -142,6 +235,7 @@ ForgeMasterEditor::ForgeMasterEditor (ForgeMasterProcessor& p)
     knob ("lmGain", "Low-Mid");     knob ("lmFreq", "Low-Mid Hz");
     knob ("presGain", "Presence");  knob ("presFreq", "Presence Hz");
     knob ("airGain", "Air");        knob ("airFreq", "Air Hz");
+    knob ("deessAmount", "De-esser"); knob ("deessFreq", "De-ess Hz");
 
     knob ("xover1", "Low | Mid");
     knob ("xover2", "Mid | Hi-Mid");
@@ -182,6 +276,7 @@ ForgeMasterEditor::ForgeMasterEditor (ForgeMasterProcessor& p)
     for (auto& [id, t] : toggles)
         if (id != "autoLoud" && id != "compare" && id != "gainMatch") advancedOnly.push_back (t.get());
     advancedOnly.push_back (combos["style"].get());
+    advancedOnly.push_back (combos["target"].get());   // platform presets live in Advanced; Simple has Low/Medium/High
 
     // --- Simple view
     for (auto* tab : { &simpleTab, &advancedTab })
@@ -192,7 +287,7 @@ ForgeMasterEditor::ForgeMasterEditor (ForgeMasterProcessor& p)
         addAndMakeVisible (*tab);
     }
     simpleTab.onClick = [this] { setView (true); };
-    advancedTab.onClick = [this] { setView (false); };
+    advancedTab.onClick = [this] { proc.enableManualMode(); setView (false); };
     advancedTab.setComponentID ("advancedTab");
 
     autoButton.onClick = [this]
@@ -249,9 +344,11 @@ ForgeMasterEditor::ForgeMasterEditor (ForgeMasterProcessor& p)
         };
     }
 
-    const std::pair<const char*, const char*> macros[] { { "lowGain", "Low End" }, { "presGain", "Presence" },
+    const std::pair<const char*, const char*> macros[] { { "lowGain", "Low End" }, { "lmGain", "Mid" },
                                                          { "airGain", "Air" }, { "width", "Stereo Width" },
-                                                         { "satDrive", "Warmth" }, { "ceiling", "Ceiling" } };
+                                                         { "satDrive", "Warmth" }, { "ceiling", "Ceiling" },
+                                                         { "presGain", "Amount" }, { "deessFreq", "Frequency" },
+                                                         { "deessAmount", "Amount" } };
     for (auto& [id, caption] : macros)
     {
         auto k = std::make_unique<Knob> (proc.apvts, id, caption);
@@ -334,10 +431,10 @@ void ForgeMasterEditor::layoutSimple (juce::Rectangle<int> r)
 
     auto a = simpleLeft.reduced (20);
     a.removeFromTop (16);
-    autoButton.setBounds (a.removeFromTop (270).withSizeKeepingCentre (270, 270));
+    autoButton.setBounds (a.removeFromTop (240).withSizeKeepingCentre (240, 240));
     statusLabel.setBounds (a.removeFromTop (28));
     summaryLabel.setBounds (a.removeFromTop (20));
-    a.removeFromTop (18);
+    a.removeFromTop (8);
 
     auto buttonRow = [] (juce::Rectangle<int> row, juce::TextButton* buttons)
     {
@@ -353,9 +450,15 @@ void ForgeMasterEditor::layoutSimple (juce::Rectangle<int> r)
     a.removeFromTop (30);   // "LOUDNESS" caption
     buttonRow (a.removeFromTop (36), loudnessButtons);
 
+    // Presence | De-esser (frequency, amount)
+    a.removeFromTop (40);   // "PRESENCE" / "DE-ESSER" captions
+    auto knobRow = a.removeFromTop (108).withSizeKeepingCentre (420, 108);
+    for (auto* id : { "presGain", "deessFreq", "deessAmount" })
+        simpleKnobs[id]->setBounds (knobRow.removeFromLeft (140).withSizeKeepingCentre (100, 108));
+
     auto b = simpleRight.reduced (16);
     b.removeFromTop (24);
-    const char* ids[6] { "lowGain", "presGain", "airGain", "width", "satDrive", "ceiling" };
+    const char* ids[6] { "lowGain", "lmGain", "airGain", "width", "satDrive", "ceiling" };
     for (int row = 0; row < 2; ++row)
     {
         auto line = b.removeFromTop (118);
@@ -364,8 +467,7 @@ void ForgeMasterEditor::layoutSimple (juce::Rectangle<int> r)
             simpleKnobs[ids[row * 3 + k]]->setBounds (line.removeFromLeft (w).withSizeKeepingCentre (100, 108));
     }
     b.removeFromTop (10);
-    combos["target"]->setBounds (b.removeFromTop (28));
-    b.removeFromTop (6);
+    b.removeFromTop (4);
     auto row = b.removeFromTop (26);
     const int third = row.getWidth() / 3;
     toggles["autoLoud"]->setBounds (row.removeFromLeft (third + 20));
@@ -395,9 +497,10 @@ void ForgeMasterEditor::layoutAdvanced (juce::Rectangle<int> r)
         knobs["intensity"]->setBounds (row.removeFromLeft (kw));
         combos["style"]->setBounds (row.reduced (4, 30));
 
-        a.removeFromTop (28);
-        const char* eqRows[4][2] { { "lowGain", "lowFreq" }, { "lmGain", "lmFreq" },
-                                   { "presGain", "presFreq" }, { "airGain", "airFreq" } };
+        a.removeFromTop (18);
+        const char* eqRows[5][2] { { "lowGain", "lowFreq" }, { "lmGain", "lmFreq" },
+                                   { "presGain", "presFreq" }, { "airGain", "airFreq" },
+                                   { "deessAmount", "deessFreq" } };
         for (auto& pair : eqRows)
         {
             row = a.removeFromTop (kh);
@@ -467,11 +570,14 @@ void ForgeMasterEditor::layoutAdvanced (juce::Rectangle<int> r)
 
 void ForgeMasterEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (colours::bg);
+    g.setGradientFill (juce::ColourGradient (colours::bgTop, 0.0f, 0.0f, colours::bgBottom, 0.0f, (float) getHeight(), false));
+    g.fillAll();
 
-    g.setColour (colours::text);
     g.setFont (juce::FontOptions (22.0f, juce::Font::bold));
-    g.drawText ("FORGE MASTER", 16, 12, 300, 30, juce::Justification::centredLeft);
+    g.setColour (colours::text);
+    g.drawText ("FORGE", 16, 12, 300, 30, juce::Justification::centredLeft);
+    g.setColour (colours::accent);
+    g.drawText ("MASTER", 93, 12, 300, 30, juce::Justification::centredLeft);
     g.setColour (colours::dim);
     g.setFont (juce::FontOptions (13.0f));
     g.drawText ("Multiband / Mid-Side mastering with loudness targeting", 200, 12, 500, 30,
@@ -498,6 +604,17 @@ void ForgeMasterEditor::paint (juce::Graphics& g)
         g.drawText ("STYLE", caption (styleButtons[0]), juce::Justification::centredLeft);
         g.drawText ("INTENSITY", caption (intensityButtons[0]), juce::Justification::centredLeft);
         g.drawText ("LOUDNESS  (-14 / -11 / -9 LUFS)", caption (loudnessButtons[0]), juce::Justification::centredLeft);
+
+        // section titles above the Presence / De-esser knobs, de-esser spanning its two knobs with rules
+        const auto pres = simpleKnobs["presGain"]->getBounds();
+        const auto deess = simpleKnobs["deessFreq"]->getBounds().getUnion (simpleKnobs["deessAmount"]->getBounds());
+        g.drawText ("PRESENCE", pres.withY (pres.getY() - 22).withHeight (18), juce::Justification::centred);
+        auto titleRow = deess.withY (deess.getY() - 22).withHeight (18);
+        g.drawText ("DE-ESSER", titleRow, juce::Justification::centred);
+        g.setColour (colours::outline);
+        const int ruleY = titleRow.getCentreY();
+        g.drawHorizontalLine (ruleY, (float) titleRow.getX() + 6.0f, (float) titleRow.getCentreX() - 40.0f);
+        g.drawHorizontalLine (ruleY, (float) titleRow.getCentreX() + 40.0f, (float) titleRow.getRight() - 6.0f);
         drawMeters (g);
         return;
     }
@@ -609,9 +726,10 @@ void ForgeMasterEditor::timerCallback()
         autoButton.progress = progress;
         autoButton.repaint();
     }
-    statusLabel.setText (state == State::listening ? "Play the track - ideally the fullest section. Click to cancel."
-                         : state == State::mastered ? "Mastered. Pick a style and intensity, or fine tune."
-                                                    : "Press play in your DAW, then click AUTO MASTER.",
+    statusLabel.setText (state == State::listening ? "Listening - play the fullest part of the track. Click to cancel."
+                         : state == State::mastered ? "Mastered. Toggle Bypass to hear the difference."
+                         : state == State::manual   ? "Manual mode. Click AUTO MASTER for an automatic master."
+                                                    : "Press play, then click AUTO MASTER. Audio is untouched until then.",
                          juce::dontSendNotification);
     summaryLabel.setText (proc.getAutoSummary(), juce::dontSendNotification);
 

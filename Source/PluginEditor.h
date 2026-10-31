@@ -8,6 +8,8 @@ public:
     ForgeLookAndFeel();
     void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos,
                            float startAngle, float endAngle, juce::Slider&) override;
+    void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&,
+                               bool highlighted, bool down) override;
 };
 
 // Rotary knob with a caption, bound to one parameter.
@@ -22,9 +24,14 @@ struct Knob : public juce::Component
 };
 
 // The big one-click button: idle -> listening (progress ring) -> mastered.
-struct AutoMasterButton : public juce::Component
+// A sphere with slowly drifting white fog inside; the fog speeds up while listening.
+struct AutoMasterButton : public juce::Component,
+                          private juce::Timer
 {
+    AutoMasterButton() { startTimerHz (40); }
     void paint (juce::Graphics&) override;
+    void timerCallback() override;
+    float phase = 0.0f;   // animation clock, seconds scaled by state
     void mouseUp (const juce::MouseEvent&) override { if (onClick) onClick(); }
     void mouseEnter (const juce::MouseEvent&) override { repaint(); }
     void mouseExit (const juce::MouseEvent&) override { repaint(); }

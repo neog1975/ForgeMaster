@@ -5,9 +5,9 @@ namespace
 {
     // Tone offsets in dB for [low shelf, low-mid, presence, air], scaled by intensity.
     constexpr float styleOffsets[4][4] {
-        {  1.7f, -0.2f, -0.2f,  1.4f },   // Balanced
-        {  2.0f,  0.5f, -0.5f, -1.0f },   // Warm
-        { -0.5f, -1.0f,  1.5f,  2.5f },   // Open
+        {  1.8f,  0.0f,  0.0f, -0.2f },   // Balanced
+        {  2.8f,  0.5f, -0.7f, -1.2f },   // Warm
+        {  1.2f, -0.5f,  0.8f,  1.2f },   // Open
         {  0.0f,  0.0f,  0.0f,  0.0f },   // Flat
     };
 
@@ -61,6 +61,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ForgeMasterProcessor::create
     addFloat ("presFreq", "Presence Freq", 1500.0f, 8000.0f, 3500.0f, "Hz", 3500.0f);
     addFloat ("airGain", "Air Gain", -12.0f, 12.0f, 0.0f, "dB");
     addFloat ("airFreq", "Air Freq", 6000.0f, 18000.0f, 12000.0f, "Hz", 11000.0f);
+    addFloat ("deessFreq", "De-esser Frequency", 3000.0f, 12000.0f, 6500.0f, "Hz", 6000.0f);
+    addFloat ("deessAmount", "De-esser Amount", 0.0f, 100.0f, 0.0f, "%");
 
     addFloat ("xover1", "Crossover Low", 40.0f, 400.0f, 120.0f, "Hz", 120.0f);
     addFloat ("xover2", "Crossover Mid", 400.0f, 4000.0f, 1000.0f, "Hz", 1200.0f);
@@ -132,6 +134,7 @@ void ForgeMasterProcessor::prepareToPlay (double sr, int samplesPerBlock)
 
     sideHighPass.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 20.0);
     sideHighPass.prepare ({ sr, (juce::uint32) maxBlock, 1 });
+    deEsser.prepare (sr);
     monoCache = -1.0f;
 
     // 4x oversampling at 44.1/48 kHz, 2x at 88.2/96 kHz, none above.
@@ -270,6 +273,9 @@ void ForgeMasterProcessor::processChunk (float* L, float* R, int n)
         L[i] = l; R[i] = r;
     }
 
+    // De-esser (after the tone EQ, so presence boosts don't push sibilance into the dynamics)
+    meters.deessGrDb.store (deEsser.process (L, R, n, param ("deessFreq"), param ("deessAmount") * 0.01f));
+
     // Band split
     for (int i = 0; i < n; ++i)
     {
@@ -396,6 +402,14 @@ void ForgeMasterProcessor::processChunk (float* L, float* R, int n)
         peak = juce::jmax (peak, std::abs (L[i]), std::abs (R[i]));
     }
 
+    // Not mastered yet: play the untouched mix (latency-compensated).
+    const bool active = isProcessingActive();
+    if (! active)
+    {
+        std::copy (dryL.begin(), dryL.begin() + n, L);
+        std::copy (dryR.begin(), dryR.begin() + n, R);
+    }
+
     outMeter.process (L, R, n);
 
     const int ticks = outMeter.getTicks();
@@ -405,7 +419,7 @@ void ForgeMasterProcessor::processChunk (float* L, float* R, int n)
         const float inST = inMeter.getShortTerm();
         const float outST = outMeter.getShortTerm();
 
-        if (autoOn && inMeter.getMomentary() > -45.0f && outST > -70.0f)
+        if (autoOn && isProcessingActive() && inMeter.getMomentary() > -45.0f && outST > -70.0f)
         {
             const float step = juce::jlimit (-0.3f, 0.3f, (getTargetLufs() - outST) * 0.05f);
             autoDb = juce::jlimit (-12.0f, 24.0f, autoDb + step);
@@ -416,7 +430,9 @@ void ForgeMasterProcessor::processChunk (float* L, float* R, int n)
 
     // Bypass plays the untouched mix (latency-compensated). Gain Match turns the
     // master down to the mix's loudness so only the tonal/dynamic change is heard.
-    if (param ("compare") > 0.5f)
+    if (! active)
+        matchGainDb.skip (n);
+    else if (param ("compare") > 0.5f)
     {
         std::copy (dryL.begin(), dryL.begin() + n, L);
         std::copy (dryR.begin(), dryR.begin() + n, R);
@@ -497,23 +513,26 @@ void ForgeMasterProcessor::applyAutoMaster()
     appliedIntensity = param ("intensity");
 
     // --- Tone: compare the octave spectrum against a reference curve, aligned on
-    // the 315 Hz - 2.5 kHz region. The curve was measured from a finished,
-    // commercially mastered EDM track (loudest sections, same filterbank).
-    constexpr float reference[MixAnalyzer::numBands] { 7.0f, 9.0f, 6.0f, 1.5f, 0.0f, -0.5f, -1.0f, -2.5f, -5.0f, -9.5f };
+    // the 315 Hz - 2.5 kHz region. The curve is the mean of four finished,
+    // commercially mastered EDM tracks (loudest sections, same filterbank).
+    constexpr float reference[MixAnalyzer::numBands] { 4.5f, 6.5f, 4.0f, 1.0f, 0.8f, -0.3f, -1.5f, -3.1f, -5.2f, -10.5f };
     float offset = 0.0f;
     for (int k = 3; k <= 6; ++k)
         offset += (a.bandDb[(size_t) k] - reference[k]) / 4.0f;
 
-    auto correction = [&] (std::initializer_list<int> ks)
+    // How much of each region's deviation gets corrected (at medium intensity).
+    // Measured from mix/master pairs: the low end is barely adapted to the mix
+    // (the style adds a small fixed lift instead), while the top end is pulled
+    // firmly towards the reference.
+    auto correction = [&] (std::initializer_list<int> ks, float strength)
     {
         float dev = 0.0f;
         for (int k : ks) dev += a.bandDb[(size_t) k] - offset - reference[k];
         dev /= (float) ks.size();
-        // Only part of the deviation is corrected, and capped: a master should
-        // polish the mix's tonal balance, not rebuild it.
-        return juce::jlimit (-2.5f, 2.5f, -dev * (0.3f + 0.3f * intensity));
+        return juce::jlimit (-3.0f, 3.0f, -dev * strength * (0.5f + intensity));
     };
-    const float eqGain[4] { correction ({ 0, 1, 2 }), correction ({ 3, 4 }), correction ({ 6, 7 }), correction ({ 8, 9 }) };
+    const float eqGain[4] { correction ({ 0, 1, 2 }, 0.15f), correction ({ 3, 4 }, 0.3f),
+                            correction ({ 6, 7 }, 0.6f), correction ({ 8, 9 }, 0.85f) };
     setParam ("lowGain", eqGain[0]);
     setParam ("lowFreq", 130.0f);
     setParam ("lmGain", eqGain[1]);
@@ -556,7 +575,7 @@ void ForgeMasterProcessor::applyAutoMaster()
 
         const juce::String pre = "b" + juce::String (b + 1);
         setParam (pre + "On", 1.0f);
-        setParam (pre + "Thr", juce::jlimit (-48.0f, 0.0f, rmsDb + bandToneDb[b] + bandThrOffset[b] + 10.0f - 8.0f * intensity));
+        setParam (pre + "Thr", juce::jlimit (-48.0f, 0.0f, rmsDb + bandToneDb[b] + bandThrOffset[b] + 12.0f - 8.0f * intensity));
         setParam (pre + "Ratio", ratio);
         setParam (pre + "Gain", 0.0f);
     }
@@ -574,6 +593,11 @@ void ForgeMasterProcessor::applyAutoMaster()
     constexpr float satByStyle[4] { 15.0f, 25.0f, 10.0f, 0.0f };
     setParam ("satDrive", satByStyle[style] * (0.5f + intensity));
     setParam ("satMix", 100.0f);
+
+    // --- De-esser: only when the 5 kHz region sits clearly hotter than the reference.
+    const float harsh = a.bandDb[7] - offset - reference[7] + toneDb[2];
+    setParam ("deessFreq", 6500.0f);
+    setParam ("deessAmount", harsh > 1.5f ? juce::jlimit (20.0f, 50.0f, 20.0f + 10.0f * (harsh - 1.5f)) : 0.0f);
 
     // --- Loudness: seed the limiter drive from the measured loudness; the
     // auto-loudness loop then fine-tunes it while the track plays.
@@ -599,6 +623,7 @@ juce::String ForgeMasterProcessor::getAutoSummary() const
 void ForgeMasterProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    state.setProperty ("manual", autoState.load() == AutoState::manual, nullptr);
     if (hasAnalysis)
     {
         juce::ValueTree t ("Analysis");
@@ -640,6 +665,10 @@ void ForgeMasterProcessor::setStateInformation (const void* data, int sizeInByte
         hasAnalysis = true;
         autoState.store (AutoState::mastered);
         state.removeChild (t, nullptr);
+    }
+    else if ((bool) state.getProperty ("manual", false))
+    {
+        autoState.store (AutoState::manual);
     }
     apvts.replaceState (state);
 }

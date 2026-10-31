@@ -20,7 +20,7 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-option(FORGE_COPY_AFTER_BUILD "Copy the built plug-ins into the system plug-in folders" ON)
+option(FORGE_COPY_AFTER_BUILD "Copy the built plug-ins into the system plug-in folders (off: install via the .pkg)" OFF)
 option(FORGE_BUILD_TOOLS "Build the offline render/test tools" ON)
 
 juce_add_plugin(ForgeMaster

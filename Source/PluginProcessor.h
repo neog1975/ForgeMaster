@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "dsp/DeEsser.h"
 #include "dsp/Dynamics.h"
 #include "dsp/LoudnessMeter.h"
 #include "dsp/MixAnalyzer.h"
@@ -56,9 +57,17 @@ public:
     void resetIntegrated() { inMeter.requestReset(); outMeter.requestReset(); }
 
     // One-click auto master: listen to the mix, then derive every setting from it.
-    enum class AutoState { idle, listening, mastered };
+    // Until the mix is mastered (or manual mode is chosen) audio passes through
+    // untouched, so clicking AUTO MASTER is where the change is heard.
+    enum class AutoState { idle, listening, mastered, manual };
     void startAutoMaster();
-    void cancelAutoMaster() { analyzer.cancel(); autoState.store (AutoState::idle); }
+    void cancelAutoMaster() { analyzer.cancel(); autoState.store (hasAnalysis ? AutoState::mastered : AutoState::idle); }
+    void enableManualMode() { if (autoState.load() == AutoState::idle) autoState.store (AutoState::manual); }
+    bool isProcessingActive() const
+    {
+        const auto s = autoState.load();
+        return s == AutoState::mastered || s == AutoState::manual;
+    }
     AutoState getAutoState() const { return autoState.load(); }
     float getAutoProgress() const { return analyzer.getProgress(); }
     juce::String getAutoSummary() const;
@@ -74,6 +83,7 @@ public:
         std::atomic<float> outMomentary { -100.0f }, outShortTerm { -100.0f }, outIntegrated { -100.0f };
         std::atomic<float> truePeakDb { -100.0f };
         std::atomic<float> limiterGrDb { 0.0f };
+        std::atomic<float> deessGrDb { 0.0f };
         std::atomic<float> autoDriveDb { 0.0f };
         std::atomic<float> bandGrDb[numBands] {};
     } meters;
@@ -110,6 +120,7 @@ private:
     float globalWidth = 1.0f;
 
     juce::dsp::IIR::Filter<float> sideHighPass;
+    DeEsser deEsser;
     float monoCache = -1.0f;
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
