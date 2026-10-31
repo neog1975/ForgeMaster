@@ -37,9 +37,9 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DFORGE_COPY_AFTER_BUILD=OFF "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DFORGE_COPY_AFTER_BUILD=OFF -DFORGE_VST3_MANIFEST=OFF "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
           else
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DFORGE_COPY_AFTER_BUILD=OFF
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DFORGE_COPY_AFTER_BUILD=OFF -DFORGE_VST3_MANIFEST=OFF
           fi
 
       - name: Build

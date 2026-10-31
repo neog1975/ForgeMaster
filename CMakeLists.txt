@@ -22,6 +22,7 @@ endif()
 
 option(FORGE_COPY_AFTER_BUILD "Copy the built plug-ins into the system plug-in folders (off: install via the .pkg)" OFF)
 option(FORGE_BUILD_TOOLS "Build the offline render/test tools" ON)
+option(FORGE_VST3_MANIFEST "Generate the VST3 moduleinfo.json after building (loads the plug-in once)" ON)
 
 juce_add_plugin(ForgeMaster
     COMPANY_NAME "Forge Audio"
@@ -34,6 +35,7 @@ juce_add_plugin(ForgeMaster
     NEEDS_MIDI_OUTPUT FALSE
     AU_MAIN_TYPE kAudioUnitType_Effect
     VST3_CATEGORIES Fx Mastering
+    VST3_AUTO_MANIFEST ${FORGE_VST3_MANIFEST}
     COPY_PLUGIN_AFTER_BUILD ${FORGE_COPY_AFTER_BUILD})
 
 target_sources(ForgeMaster PRIVATE
