@@ -47,7 +47,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cmake --build build --config Release --parallel 2>&1 | tee build-log.txt
+          # Unbounded "make -j" exhausts RAM on the 3-core macOS runner (universal build) and stalls.
+          if [ "$RUNNER_OS" = "macOS" ]; then JOBS=3; else JOBS=4; fi
+          cmake --build build --config Release --parallel "$JOBS" 2>&1 | tee build-log.txt
 
       - name: Report build log tail
         if: failure()
