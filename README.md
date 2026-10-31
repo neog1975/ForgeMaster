@@ -11,6 +11,8 @@ Think of it as an open alternative to online auto-mastering services that runs l
 
 Formats: **VST3**, **AU** (macOS) and **Standalone**. Works in FL Studio, Ableton Live, Logic Pro, Cubase, Reaper and other hosts.
 
+**⬇️ Download:** get the ready-to-install plugin for Windows and macOS from the [latest release](https://github.com/neog1975/ForgeMaster/releases/latest) (install steps are on that page).
+
 > Status: early release (v0.1.0). Feedback, bug reports and pull requests are very welcome.
 
 ## How it works
